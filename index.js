@@ -1,56 +1,57 @@
-import { CohereClientV2 } from "cohere-ai";
-import {appart} from "./data.js"
-import promptSync from "prompt-sync";
+const { Client, RemoteAuth } = require('whatsapp-web.js');
+const QRCode = require('qrcode');
+const express = require('express');
+const cohere = require('cohere-ai');
+const fs = require('fs');
 
-const prompt = promptSync();
+// ⚡ Clé Cohere directe
+cohere.init('TfsbCLHIdEHvncALH9sY2KVWN3IeLeenfGD7jeW0F');
 
+const sessionFilePath = '/mnt/storage/session.json';
+const qrImagePath = '/mnt/storage/whatsapp-qr.png';
 
- const apparts = appart.map(a => ({
-  id: a.id,
-  src: a.src,
-  localisation: a.localisation,
-  info: a.info,
-  détails: a.détails,
-  tof: a.tof.slice(0, 8)
-}));
-
-
-const cohere = new CohereClientV2({
-    token : 'oS7MBerWYQYUP22aOLES6nh4pg2aCrcU3Sh0pNqH'
-})
-
-const conversation = [
-    {role :'system' , content : 'Tu es amical posé direct froid . tu ne dis jamais (jamais) que tu es une ia de cohere et tu dis que tu es lassistant de ayikpe immobilier . Tu es un agent immobilier rien dautre tu ne parles que de ca plus rien tu evite les autre sujets doucement . nos appartements sont situes juste dans cotonou et que des appartements meubles pas de propriete a vendre . et tu utilises intelligemment les donnes dapparts qui te sont servies . Si on te demande de photos les liens tof a ta diposition tu ajoute https://gprmifjjcsfnudcobfxl.supabase.co/storage/v1/object/public/appartements/image1/img10.JPG juste devant puis tu dis de consulter'},
-    {role : 'system' , content : `Tu fais un bref resume de ca dans ta memoire d'une telle maniere que tu gardes exactement les infos tel quel mais en apen 100lignes${JSON.stringify(apparts)}`}
-]
-
-
-console.log("Ayikpe immobilier : En quoi pouvant nous vous aider . Etes vous a la recherche d'un studio meublé\n")
-
-
-async function sendMsg(message) {
-
-    while(true){
-
-    message = prompt('Toi : ')
-    console.log("")
-
-
-    conversation.push({role:'user' , content : message})
-
-    const reponse = await cohere.chat({
-        model : "command-a-03-2025",
-        messages : conversation
+const client = new Client({
+    authStrategy: new RemoteAuth({
+        clientId: 'mon-bot',
+        dataPath: sessionFilePath,
+        backupSyncIntervalMs: 0 // sauvegarde manuelle seulement
     })
+});
 
-    const text = reponse.message?.content?.[0]?.text || "Aucune réponse";
+// Express pour rendre le QR code public
+const app = express();
+const port = process.env.PORT || 3000;
+app.use('/qr', express.static(qrImagePath));
+app.listen(port, () => console.log(`QR code public : https://<ton-projet-railway>.up.railway.app/qr`));
 
-    conversation.push({role:'assistant', content : text});
+client.on('qr', async qr => {
+    await QRCode.toFile(qrImagePath, qr);
+    console.log('QR code généré ! Ouvre /qr pour scanner avec ton téléphone.');
+});
 
-    console.log("Assistant : " , text ,"\n")
+client.on('ready', async () => {
+    console.log('Bot prêt !');
+    await client.authStrategy.saveCreds();
+    console.log('Session sauvegardée sur Persistent Storage !');
+});
 
+client.on('message', async message => {
+    console.log(`Message reçu : ${message.body}`);
+
+    try {
+        // Génération via Commando
+        const response = await cohere.generate({
+            model: 'command', // 🔥 Commando ici
+            prompt: `Réponds de manière courte et amicale à ce message : "${message.body}"`,
+            max_tokens: 50
+        });
+
+        const reply = response.body.generations[0].text.trim();
+        await message.reply(reply);
+    } catch (err) {
+        console.error('Erreur Cohere :', err);
+        await message.reply('Désolé, je n’ai pas pu répondre 😅');
     }
+});
 
-}
-
-await sendMsg();
+client.initialize();
